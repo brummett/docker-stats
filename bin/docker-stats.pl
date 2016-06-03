@@ -8,6 +8,9 @@ use AnyEvent::Handle;
 use IO::Socket::UNIX;
 use HTTP::Request;
 use HTTP::Response;
+use JSON::XS;
+
+print "using JSON::XS version $JSON::XS::VERSION\n";
 
 use constant DOCKER_SOCKET_NAME => '/var/run/docker.sock';
 my $last_event_seq = 0;
@@ -26,33 +29,46 @@ sub main_loop {
 
 sub create_event_watcher {
     my $sock = IO::Socket::UNIX->new(
-		    Type => SOCK_STREAM,
-		    Peer => DOCKER_SOCKET_NAME
-		) || die "Can't open docker socket: $!";
-    $sock->autoflush(1);
+                    Type => SOCK_STREAM,
+                    Peer => DOCKER_SOCKET_NAME
+                ) || die "Can't open docker socket: $!";
 
-    my $w = AnyEvent->io(
-	fh => $sock,
-	poll => 'r',
-	cb => sub {
-	    print "Got response on /events\n";
-	    my $lines = 0;
-	    while(my $line = $sock->getline()) {
-		$lines++;
-		chomp $line;
-		print "read: >>$line<<\n";
-	    }
-	    exit unless $lines;
-	    if (0) { $sock = undef }
-	}
+    my $handle; $handle = AnyEvent::Handle->new(
+	    fh => $sock,
+	    on_error => sub {
+		my($h, $fatal, $msg) = @_;
+		print "Error on docker socket, fatal $fatal, msg: $msg\n";
+		$handle->destroy;
+	    },
     );
 
-    #my $request = HTTP::Request->new('GET', "/events?since=$last_event_seq");
-    #my $request = HTTP::Request->new('GET', "/events");
-    #my $request = HTTP::Request->new('GET', "/containers/ps");
-print "\n\n\n\n***** sending GET request\n*************************\n\n";
-    #$sock->syswrite($request->as_string);
-    $sock->syswrite("GET /events HTTP/1.1\n\n");
+    #my $request = HTTP::Request->new('GET', '/events');
+    #$handle->push_write($request->as_string);
+    $handle->push_write("GET /events HTTP/1.1\n\n");
+    print "\n\n\n********* queued sending GET\n\n\n";
 
-    return $w;
+    my $body_reader; $body_reader = sub {
+	my($h, $hash) = @_;
+
+	print "Got data: ",Data::Dumper::Dumper($hash);
+	$handle->push_read(json => $body_reader);
+    };
+
+    my $header_reader; $header_reader = sub {
+	my($h, $line) = @_;
+	$line =~ s/\r|\n//;
+	print "Got header line: $line\n";
+	if ($line) {
+	    # more headers?
+	    $handle->push_read(line => $header_reader);
+	} else {
+	    # get the body...
+print "next is the body data...\n";
+	    $handle->push_read(json => $body_reader);
+	}
+    };
+    $handle->push_read(line => $header_reader);
+
+    return $handle;
 }
+
