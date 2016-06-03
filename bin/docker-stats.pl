@@ -8,7 +8,7 @@ use AnyEvent::Handle;
 use IO::Socket::UNIX;
 use HTTP::Request;
 use HTTP::Response;
-use JSON::XS;
+use JSON::XS qw(decode_json);
 
 print "using JSON::XS version $JSON::XS::VERSION\n";
 
@@ -67,7 +67,23 @@ print "next is the body data...\n";
 	    $handle->push_read(json => $body_reader);
 	}
     };
-    $handle->push_read(line => $header_reader);
+    #$handle->push_read(line => $header_reader);
+
+    my $done_with_headers = 0;
+    my $reader; $reader = sub {
+	my($h, $line) = @_;
+	$line =~ s/\r|\n//;
+	if ($done_with_headers) {
+	    print "Got data line: $line\n";
+	    my $data = decode_json($line);
+	    print "Got data ",Data::Dumper::Dumper($data);
+	} else {
+	    print "Got header: $line\n";
+	    $done_with_headers = 1 unless $line;
+	}
+	$handle->push_read(line => $reader);
+    };
+    $handle->push_read(line => $reader);
 
     return $handle;
 }
