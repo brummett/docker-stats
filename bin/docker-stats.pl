@@ -5,6 +5,7 @@ use warnings;
 
 use AnyEvent;
 use AnyEvent::Handle;
+use AnyEvent::Run;
 use IO::Socket::UNIX;
 use HTTP::Request;
 use HTTP::Response;
@@ -87,7 +88,7 @@ sub create_event_watcher {
 
 	    printf("**** Docker container %s exited with code %d after %d seconds: LSF job %s\n",
 		    $image, $exit_code, $total_time, $job_name);
-	    get_container_details($id);
+	    get_lsf_job_details($job_name);
 	}
     };
 
@@ -110,6 +111,38 @@ print "next is the body data...\n";
     $handle->push_read(line => $header_reader);
 
     return $handle;
+}
+
+sub get_lsf_job_details {
+    my $job_id_string = shift;
+
+    my($job_id) = $job_id_string =~ m/lsf_(\d+)/;
+
+    my $cv = AnyEvent->condvar;
+
+    my @bjobs_fields = qw( stat user cpu_used run_time idle_factor max_mem avg_mem swap );
+    my $delimiter = q(:);
+    my $handle; $handle = AnyEvent::Run->new(
+		    cmd => ['bjobs', '-o',
+			    join(' ', @bjobs_fields) . ' ' . qq(delimiter='$delimiter'),
+			    $job_id ],
+		    on_error => sub {
+			my($h, $fatal, $msg) = @_;
+			$cv->croak("Got error getting details for LSF job $job_id: $msg");
+			$handle->destroy;
+		    }
+		);
+    $handle->push_read(line => sub { });  # header
+    $handle->push_read(line => sub {
+	my($h, $line) = @_;
+	my @details = split(/$delimiter/, $line);
+	my %details;
+	for(my $i = 0; $i < @bjobs_fields; $i++) {
+	    $details{ $bjobs_fields[$i] } = @details[$i];
+	}
+
+	print "Details for LSF job $job_id: ",Data::Dumper::Dumper(\%details);
+    });
 }
 
 sub get_container_details {
