@@ -87,6 +87,7 @@ sub create_event_watcher {
 
 	    printf("**** Docker container %s exited with code %d after %d seconds: LSF job %s\n",
 		    $image, $exit_code, $total_time, $job_name);
+	    get_container_details($id);
 	}
     };
 
@@ -109,5 +110,37 @@ print "next is the body data...\n";
     $handle->push_read(line => $header_reader);
 
     return $handle;
+}
+
+sub get_container_details {
+    my $id = shift;
+
+    my $handle = _create_watcher_for_docker_socket();
+
+    $handle->push_write("GET /containers/$id/json HTTP/1.1\n\n");
+
+    my $body_reader; $body_reader = sub {
+	my($h, $hash) = @_;
+
+	print "**** Details for container $id: ",Data::Dumper::Dumper($hash);
+    };
+
+    my $header_reader; $header_reader = sub {
+	my($h, $line) = @_;
+	$line =~ s/\r|\n//;
+	print "Got header line: $line\n";
+	if ($line) {
+	    # more headers?
+	    $handle->push_read(line => $header_reader);
+	} else {
+	    # get the body...
+print "next is the body data...\n";
+	    $handle->push_read(line => sub { print "throwaway_line: $_[1]\n" });
+	    $handle->push_read(json => $body_reader);
+	    $handle->push_read(line => sub { print "EOL line: $_[1]\n" });
+            $handle->push_read(line => sub { print "blank line: $_[1]\n" });
+	}
+    };
+    $handle->push_read(line => $header_reader);
 }
 
