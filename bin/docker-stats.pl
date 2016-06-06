@@ -142,6 +142,15 @@ sub get_lsf_job_details {
 	}
 
 	print "Details for LSF job $job_id: ",Data::Dumper::Dumper(\%details);
+	if ($details{stat} eq 'RUN') {
+	    # Details aren't finalized until the job status is DONE
+	    # in marticular, the run_time and max_mem can get updated after the job exits
+	    # but before bjobs reports it's status as "DONE".
+	    # Also, 'swap' will be "-' when the job is DONE, but can be some actual value
+	    # beforehand
+	    my $again; $again = AnyEvent->timer(after => 2,
+			    cb => sub { $again; get_lsf_job_details($job_id_string) });
+	}
     });
 }
 
