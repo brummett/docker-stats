@@ -30,7 +30,7 @@ sub main_loop {
     print "done\n";
 }
 
-sub create_event_watcher {
+sub _create_watcher_for_docker_socket {
     my $sock = IO::Socket::UNIX->new(
                     Type => SOCK_STREAM,
                     Peer => DOCKER_SOCKET_NAME
@@ -44,6 +44,11 @@ sub create_event_watcher {
 		$handle->destroy;
 	    },
     );
+    return $handle;
+}
+
+sub create_event_watcher {
+    my $handle = _create_watcher_for_docker_socket();
 
     $handle->push_write("GET /events HTTP/1.1\n\n");
 #print "\n\n\n********* queued sending GET\n\n\n";
